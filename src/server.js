@@ -2,6 +2,8 @@ const express = require('express');
 const cors = require('cors');
 const dotenv = require('dotenv');
 const connectDB = require('./config/db');
+const artworkRoutes = require('./routes/artworkRoutes');
+const apiRoutes = require('./routes');
 
 dotenv.config();
 
@@ -26,6 +28,8 @@ app.use(
 );
 
 app.use(express.json());
+app.use('/api', apiRoutes);
+app.use('/api/artworks', artworkRoutes);
 
 app.get('/api/health', (req, res) => {
   const databaseState = mongooseConnectionState();
