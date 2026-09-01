@@ -56,7 +56,8 @@ const artworkSchema = new mongoose.Schema(
   }
 );
 
-artworkSchema.pre('save', function normalizeArtwork(next) {
+// Mongoose 9 document middleware no longer receives the legacy `next` callback.
+artworkSchema.pre('save', function normalizeArtwork() {
   if (this.title && typeof this.title === 'string') {
     this.title = this.title.trim();
   }
@@ -81,7 +82,6 @@ artworkSchema.pre('save', function normalizeArtwork(next) {
     this.featured = Boolean(this.featured);
   }
 
-  next();
 });
 
 module.exports = mongoose.model('Artwork', artworkSchema);

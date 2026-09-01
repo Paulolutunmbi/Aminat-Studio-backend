@@ -1,4 +1,5 @@
 const path = require('path');
+require('dotenv').config({ path: path.resolve(__dirname, '../../.env') });
 const mongoose = require('mongoose');
 const connectDB = require('../config/db');
 const Artwork = require('../models/Artwork');
@@ -17,6 +18,7 @@ const seedArtworks = [
     featured: true,
     category: 'Acrylic',
     dimensions: '16 x 20 in',
+    createdAt: '2023-11-15T00:00:00.000Z',
   },
   {
     title: 'The Path',
@@ -28,6 +30,7 @@ const seedArtworks = [
     featured: true,
     category: 'Watercolour',
     dimensions: '11 x 14 in',
+    createdAt: '2023-08-20T00:00:00.000Z',
   },
   {
     title: 'Surreal Landscape',
@@ -39,6 +42,7 @@ const seedArtworks = [
     featured: true,
     category: 'Mixed Media',
     dimensions: '18 x 24 in',
+    createdAt: '2024-02-10T00:00:00.000Z',
   },
   {
     title: "The Artist's Journey",
@@ -50,6 +54,7 @@ const seedArtworks = [
     featured: false,
     category: 'Pen',
     dimensions: '12 x 16 in',
+    createdAt: '2024-04-18T00:00:00.000Z',
   },
   {
     title: 'Paint With Me - Studio Study',
@@ -61,6 +66,7 @@ const seedArtworks = [
     featured: false,
     category: 'Watercolour',
     dimensions: '8 x 10 in',
+    createdAt: '2024-06-02T00:00:00.000Z',
   },
 ];
 
@@ -72,13 +78,6 @@ const buildLocalFilePath = (relativeFilePath) => {
 const seedExistingArtworks = async () => {
   try {
     await connectDB();
-
-    const existingCount = await Artwork.countDocuments();
-    if (existingCount > 0) {
-      console.log(`Artwork collection already contains ${existingCount} records. Skipping seeding.`);
-      await mongoose.connection.close();
-      return;
-    }
 
     const shouldUploadToCloudinary = Boolean(process.env.CLOUDINARY_URL && process.env.SEED_ARTWORKS_UPLOAD === 'true');
 
@@ -112,11 +111,25 @@ const seedExistingArtworks = async () => {
         console.log(`Using frontend asset path for ${item.title}.`);
       }
 
-      records.push(document);
+      records.push({
+        ...document,
+        createdAt: new Date(item.createdAt),
+        updatedAt: new Date(item.createdAt),
+      });
     }
 
-    const inserted = await Artwork.insertMany(records);
-    console.log(`Inserted ${inserted.length} artwork records into MongoDB.`);
+    const result = await Artwork.bulkWrite(
+      records.map((record) => ({
+        updateOne: {
+          filter: { title: record.title },
+          update: { $setOnInsert: record },
+          upsert: true,
+          timestamps: false,
+        },
+      }))
+    );
+    const total = await Artwork.countDocuments();
+    console.log(`Artwork seed complete: ${result.upsertedCount} inserted, ${records.length - result.upsertedCount} already present, ${total} total records.`);
   } catch (error) {
     console.error('Artwork seeding failed:', error.message);
     process.exitCode = 1;
