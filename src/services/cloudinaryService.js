@@ -4,6 +4,21 @@ const cloudinary = require('../config/cloudinary');
 
 const ARTWORK_FOLDER = 'aminat-studio/artworks';
 
+const decodeDataUrlToBuffer = (dataUrl) => {
+  if (typeof dataUrl !== 'string') {
+    return null;
+  }
+
+  const trimmed = dataUrl.trim();
+  const match = trimmed.match(/^data:(image\/[a-zA-Z0-9.+-]+);base64,(.+)$/);
+
+  if (!match) {
+    throw new Error('Invalid base64 image data URL.');
+  }
+
+  return Buffer.from(match[2], 'base64');
+};
+
 const uploadBufferToCloudinary = async (buffer) => {
   return new Promise((resolve, reject) => {
     const uploadStream = cloudinary.uploader.upload_stream(
@@ -33,11 +48,21 @@ const resolveUploadSource = (file) => {
   }
 
   if (typeof file === 'string') {
-    if (!fs.existsSync(file)) {
+    const trimmed = file.trim();
+
+    if (trimmed.startsWith('data:')) {
+      return { type: 'buffer', value: decodeDataUrlToBuffer(trimmed) };
+    }
+
+    if (/^https?:\/\//i.test(trimmed)) {
+      return { type: 'remote-url', value: trimmed };
+    }
+
+    if (!fs.existsSync(trimmed)) {
       throw new Error('Image file path does not exist.');
     }
 
-    return { type: 'path', value: file };
+    return { type: 'path', value: trimmed };
   }
 
   if (Buffer.isBuffer(file)) {
@@ -45,7 +70,17 @@ const resolveUploadSource = (file) => {
   }
 
   if (file.path) {
-    return { type: 'path', value: file.path };
+    const value = String(file.path).trim();
+
+    if (value.startsWith('data:')) {
+      return { type: 'buffer', value: decodeDataUrlToBuffer(value) };
+    }
+
+    if (!fs.existsSync(value)) {
+      throw new Error('Image file path does not exist.');
+    }
+
+    return { type: 'path', value };
   }
 
   if (file.buffer && Buffer.isBuffer(file.buffer)) {
@@ -67,11 +102,15 @@ const uploadArtworkImage = async (file) => {
       resource_type: 'image',
       unique_filename: true,
       overwrite: false,
+      fetch_format: 'auto',
+      quality: 'auto',
     };
 
     let result;
 
     if (uploadSource.type === 'path') {
+      result = await cloudinary.uploader.upload(uploadSource.value, uploadOptions);
+    } else if (uploadSource.type === 'remote-url') {
       result = await cloudinary.uploader.upload(uploadSource.value, uploadOptions);
     } else {
       result = await uploadBufferToCloudinary(uploadSource.value);

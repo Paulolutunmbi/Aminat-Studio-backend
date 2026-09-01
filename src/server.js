@@ -1,18 +1,38 @@
-const express = require('express');
 const path = require('path');
-const cors = require('cors');
 const dotenv = require('dotenv');
-const connectDB = require('./config/db');
-const artworkRoutes = require('./routes/artworkRoutes');
-const apiRoutes = require('./routes');
 
 dotenv.config({ path: path.resolve(__dirname, '../.env') });
 
+const express = require('express');
+const cors = require('cors');
+const connectDB = require('./config/db');
+const { ensureInitialAdmin } = require('./config/initializeAdmin');
+const artworkRoutes = require('./routes/artworkRoutes');
+const adminRoutes = require('./routes/adminRoutes');
+const apiRoutes = require('./routes');
+
 const app = express();
-const PORT = process.env.PORT || 5000;
-const frontendUrl = process.env.FRONTEND_URL;
+const PORT = Number(process.env.PORT || 5000);
+const frontendUrl = (process.env.FRONTEND_URL || '').trim();
 
 const allowedOrigins = frontendUrl ? [frontendUrl] : [];
+
+app.use((req, res, next) => {
+  const rawCookies = (req.headers.cookie || '').split(';');
+  req.cookies = {};
+
+  for (const cookie of rawCookies) {
+    const [name, ...rest] = cookie.trim().split('=');
+
+    if (!name) {
+      continue;
+    }
+
+    req.cookies[name] = decodeURIComponent(rest.join('='));
+  }
+
+  next();
+});
 
 app.use(
   cors({
@@ -30,6 +50,7 @@ app.use(
 
 app.use(express.json());
 app.use('/api', apiRoutes);
+app.use('/api/admin', adminRoutes);
 app.use('/api/artworks', artworkRoutes);
 
 app.get('/api/health', (req, res) => {
@@ -57,6 +78,7 @@ function mongooseConnectionState() {
 const startServer = async () => {
   try {
     await connectDB();
+    await ensureInitialAdmin();
 
     app.listen(PORT, () => {
       console.log(`Server running on port ${PORT}`);
