@@ -1,4 +1,5 @@
 const express = require('express');
+const settingsRoutes = require('./settingsRoutes');
 const router = express.Router();
 
 router.get('/health', (req, res) => {
@@ -8,5 +9,7 @@ router.get('/health', (req, res) => {
     database: 'connected',
   });
 });
+
+router.use('/settings', settingsRoutes);
 
 module.exports = router;

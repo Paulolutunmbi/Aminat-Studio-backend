@@ -12,7 +12,7 @@ const buildPasswordResetUrl = (resetToken) => {
     return `reset-token:${resetToken}`;
   }
 
-  return `${baseUrl}/reset-password?token=${encodeURIComponent(resetToken)}`;
+  return `${baseUrl}/admin/reset-password?token=${encodeURIComponent(resetToken)}`;
 };
 
 const sendPasswordResetEmail = async ({ email, resetToken }) => {
@@ -30,35 +30,45 @@ const sendPasswordResetEmail = async ({ email, resetToken }) => {
 
   const resetUrl = buildPasswordResetUrl(resetToken);
 
-  const response = await fetch('https://api.resend.com/emails', {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${apiKey}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      from: senderAddress,
-      to: [email],
-      subject: 'Aminat Studio admin password reset',
-      html: `
-        <p>We received a request to reset your Aminat Studio admin password.</p>
-        <p>Use the following link to continue:</p>
-        <p><a href="${resetUrl}">${resetUrl}</a></p>
-        <p>This link expires in 15 minutes.</p>
-      `,
-    }),
-  });
+  try {
+    const response = await fetch('https://api.resend.com/emails', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        from: senderAddress,
+        to: [email],
+        subject: 'Aminat Studio admin password reset',
+        html: `
+          <p>We received a request to reset your Aminat Studio admin password.</p>
+          <p>Use the following link to continue:</p>
+          <p><a href="${resetUrl}">${resetUrl}</a></p>
+          <p>This link expires in 15 minutes.</p>
+        `,
+      }),
+    });
 
-  if (!response.ok) {
-    const errorText = await response.text().catch(() => '');
-    throw new Error(errorText || `Resend request failed with status ${response.status}.`);
+    if (!response.ok) {
+      const errorText = await response.text().catch(() => '');
+      throw new Error(errorText || `Resend request failed with status ${response.status}.`);
+    }
+
+    return {
+      success: true,
+      skipped: false,
+      provider: 'resend',
+    };
+  } catch (error) {
+    const errorMessage = error && error.message ? error.message : 'Unable to send password reset email.';
+    return {
+      success: false,
+      skipped: false,
+      provider: 'resend',
+      message: errorMessage,
+    };
   }
-
-  return {
-    success: true,
-    skipped: false,
-    provider: 'resend',
-  };
 };
 
 module.exports = {

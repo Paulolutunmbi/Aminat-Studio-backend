@@ -154,32 +154,66 @@ const forgotPassword = async (req, res) => {
     });
   }
 
+  const configuredAdminEmail = normalizeEmail(process.env.ADMIN_EMAIL);
+
+  if (!configuredAdminEmail) {
+    return res.status(500).json({
+      success: false,
+      message: 'Admin password reset is not configured yet.',
+    });
+  }
+
+  if (email !== configuredAdminEmail) {
+    return res.status(403).json({
+      success: false,
+      message: 'This email is not registered as an admin account.',
+    });
+  }
+
   try {
-    const admin = await Admin.findOne({ email });
+    const admin = await Admin.findOne({ email: configuredAdminEmail }).select('+passwordResetToken +passwordResetExpiresAt');
 
-    if (admin && admin.isActive) {
-      const resetToken = generateResetToken();
-      const resetTokenHash = hashResetToken(resetToken);
-      const expiresAt = new Date(Date.now() + 15 * 60 * 1000);
-
-      admin.passwordResetToken = resetTokenHash;
-      admin.passwordResetExpiresAt = expiresAt;
-      await admin.save();
-
-      try {
-        await sendPasswordResetEmail({
-          email: admin.email,
-          resetToken,
-        });
-      } catch (emailError) {
-        console.warn('Password reset email delivery failed:', emailError.message);
-      }
+    if (!admin || !admin.isActive) {
+      return res.status(403).json({
+        success: false,
+        message: 'This email is not registered as an admin account.',
+      });
     }
 
-    return res.status(200).json({
-      success: true,
-      message: 'If an account exists, a password reset link has been sent.',
-    });
+    const resetToken = generateResetToken();
+    const resetTokenHash = hashResetToken(resetToken);
+    const expiresAt = new Date(Date.now() + 15 * 60 * 1000);
+
+    admin.passwordResetToken = resetTokenHash;
+    admin.passwordResetExpiresAt = expiresAt;
+    await admin.save();
+
+    try {
+      const emailResult = await sendPasswordResetEmail({
+        email: admin.email,
+        resetToken,
+      });
+
+      if (!emailResult || !emailResult.success) {
+        throw new Error(emailResult && emailResult.message ? emailResult.message : 'Password reset email could not be sent.');
+      }
+
+      return res.status(200).json({
+        success: true,
+        message: 'A password reset link has been sent to the admin email.',
+      });
+    } catch (emailError) {
+      console.error('Password reset email delivery failed:', emailError && emailError.message ? emailError.message : emailError);
+
+      admin.passwordResetToken = null;
+      admin.passwordResetExpiresAt = null;
+      await admin.save();
+
+      return res.status(503).json({
+        success: false,
+        message: 'We couldn\'t send the password reset email right now. Please try again later.',
+      });
+    }
   } catch (error) {
     return res.status(500).json({
       success: false,
@@ -192,11 +226,12 @@ const forgotPassword = async (req, res) => {
 const resetPassword = async (req, res) => {
   const token = String(req.body && req.body.token ? req.body.token : '');
   const newPassword = String(req.body && req.body.newPassword ? req.body.newPassword : '');
+  const configuredAdminEmail = normalizeEmail(process.env.ADMIN_EMAIL);
 
   if (!token) {
     return res.status(400).json({
       success: false,
-      message: 'Reset token is required.',
+      message: 'This password reset link is invalid or has expired. Please request a new password reset.',
     });
   }
 
@@ -210,14 +245,16 @@ const resetPassword = async (req, res) => {
   try {
     const tokenHash = hashResetToken(token);
     const admin = await Admin.findOne({
+      email: configuredAdminEmail,
       passwordResetToken: tokenHash,
+      isActive: true,
       passwordResetExpiresAt: { $gt: new Date() },
-    }).select('+passwordHash +passwordResetToken +passwordResetExpiresAt');
+    }).select('+passwordHash +passwordResetToken +passwordResetExpiresAt +sessionVersion');
 
     if (!admin) {
       return res.status(400).json({
         success: false,
-        message: 'This reset link is invalid or has expired.',
+        message: 'This password reset link is invalid or has expired. Please request a new password reset.',
       });
     }
 
@@ -232,7 +269,7 @@ const resetPassword = async (req, res) => {
 
     return res.status(200).json({
       success: true,
-      message: 'Password reset successful. Please sign in again.',
+      message: 'Password reset successfully. You can now log in with your new password.',
     });
   } catch (error) {
     return res.status(500).json({

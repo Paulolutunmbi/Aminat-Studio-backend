@@ -50,13 +50,22 @@ const artworkSchema = new mongoose.Schema(
       trim: true,
       default: '',
     },
+    order: {
+      type: Number,
+      default: 0,
+      min: 0,
+    },
+    sortOrder: {
+      type: Number,
+      default: 0,
+      min: 0,
+    },
   },
   {
     timestamps: true,
   }
 );
 
-// Mongoose 9 document middleware no longer receives the legacy `next` callback.
 artworkSchema.pre('save', function normalizeArtwork() {
   if (this.title && typeof this.title === 'string') {
     this.title = this.title.trim();
@@ -82,6 +91,11 @@ artworkSchema.pre('save', function normalizeArtwork() {
     this.featured = Boolean(this.featured);
   }
 
+  const effectiveOrder = Number.isFinite(Number(this.order)) ? Number(this.order) : Number(this.sortOrder ?? 0);
+  const effectiveSortOrder = Number.isFinite(Number(this.sortOrder)) ? Number(this.sortOrder) : effectiveOrder;
+
+  this.order = effectiveOrder;
+  this.sortOrder = effectiveSortOrder;
 });
 
 module.exports = mongoose.model('Artwork', artworkSchema);

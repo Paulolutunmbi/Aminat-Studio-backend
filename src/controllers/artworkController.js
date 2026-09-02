@@ -2,6 +2,9 @@ const mongoose = require('mongoose');
 const Artwork = require('../models/Artwork');
 const { deleteArtworkImage, uploadArtworkImage } = require('../services/cloudinaryService');
 
+const FEATURED_LIMIT = 3;
+const FEATURED_LIMIT_MESSAGE = 'Only 3 artworks can be featured at a time. Please remove one of the current featured artworks before featuring another.';
+
 const allowedUpdateFields = [
   'title',
   'description',
@@ -13,12 +16,26 @@ const allowedUpdateFields = [
   'category',
   'dimensions',
   'cloudinaryPublicId',
+  'order',
+  'sortOrder',
 ];
 
 const isValidObjectId = (value) => mongoose.Types.ObjectId.isValid(value);
 const isDataUrl = (value) => typeof value === 'string' && /^data:image\//i.test(value.trim());
 const isHttpUrl = (value) => typeof value === 'string' && /^https?:\/\//i.test(value.trim());
 const isCloudinaryUrl = (value) => typeof value === 'string' && /cloudinary\.com/i.test(value);
+
+const getFeaturedLimitError = ({ id, featured, featuredCount }) => {
+  if (featured !== true) {
+    return null;
+  }
+
+  if (Number(featuredCount) >= FEATURED_LIMIT) {
+    return FEATURED_LIMIT_MESSAGE;
+  }
+
+  return null;
+};
 
 const safeDeleteArtworkImage = async (publicId) => {
   if (!publicId) {
@@ -154,12 +171,20 @@ const buildArtworkPayload = (body) => {
     throw new Error('Artwork year must be a string, number, or null.');
   }
 
+  if (payload.order !== undefined && (typeof payload.order !== 'number' || !Number.isFinite(payload.order))) {
+    payload.order = Number(payload.order);
+  }
+
+  if (payload.sortOrder !== undefined && (typeof payload.sortOrder !== 'number' || !Number.isFinite(payload.sortOrder))) {
+    payload.sortOrder = Number(payload.sortOrder);
+  }
+
   return payload;
 };
 
 const getArtworks = async (req, res) => {
   try {
-    const artworks = await Artwork.find({}).sort({ createdAt: -1, _id: -1 }).lean();
+    const artworks = await Artwork.find({}).sort({ order: 1, sortOrder: 1, createdAt: -1, _id: -1 }).lean();
 
     return res.status(200).json({
       success: true,
@@ -208,6 +233,24 @@ const getArtworkById = async (req, res) => {
   }
 };
 
+const ensureFeaturedLimit = async ({ id, featured, existingArtwork } = {}) => {
+  if (featured !== true) {
+    return null;
+  }
+
+  const featuredQuery = { featured: true };
+  if (id && existingArtwork && existingArtwork._id && String(existingArtwork._id) === String(id)) {
+    featuredQuery._id = { $ne: id };
+  }
+
+  const featuredCount = await Artwork.countDocuments(featuredQuery);
+  if (featuredCount >= FEATURED_LIMIT) {
+    return FEATURED_LIMIT_MESSAGE;
+  }
+
+  return null;
+};
+
 const createArtwork = async (req, res) => {
   try {
     const payload = buildArtworkPayload(req.body);
@@ -228,13 +271,25 @@ const createArtwork = async (req, res) => {
       });
     }
 
+    const featuredLimitError = await ensureFeaturedLimit({ featured: Boolean(payload.featured) });
+    if (featuredLimitError) {
+      return res.status(400).json({
+        success: false,
+        message: featuredLimitError,
+      });
+    }
+
     const imageSync = await syncArtworkImage(null, rawImageValue, false);
+    const lastArtwork = await Artwork.findOne({}).sort({ order: -1, sortOrder: -1, createdAt: -1 }).lean();
+    const nextOrder = lastArtwork ? Number(lastArtwork.order ?? lastArtwork.sortOrder ?? 0) + 1 : 0;
 
     const artwork = await Artwork.create({
       ...payload,
       ...imageSync,
       imageUrl: imageSync.imageUrl,
       image: imageSync.image || imageSync.imageUrl,
+      order: payload.order ?? nextOrder,
+      sortOrder: payload.sortOrder ?? nextOrder,
     });
 
     return res.status(201).json({
@@ -286,6 +341,20 @@ const updateArtwork = async (req, res) => {
       return res.status(400).json({
         success: false,
         message: 'Artwork imageUrl cannot be empty.',
+      });
+    }
+
+    const nextFeaturedValue = payload.featured !== undefined ? Boolean(payload.featured) : artwork.featured;
+    const featuredLimitError = await ensureFeaturedLimit({
+      id,
+      featured: nextFeaturedValue,
+      existingArtwork: artwork,
+    });
+
+    if (featuredLimitError) {
+      return res.status(400).json({
+        success: false,
+        message: featuredLimitError,
       });
     }
 
@@ -387,7 +456,21 @@ const setFeaturedStatus = async (req, res, featuredValue) => {
       });
     }
 
-    artwork.featured = Boolean(featuredValue);
+    const nextFeaturedValue = Boolean(featuredValue);
+    const featuredLimitError = await ensureFeaturedLimit({
+      id,
+      featured: nextFeaturedValue,
+      existingArtwork: artwork,
+    });
+
+    if (featuredLimitError && nextFeaturedValue) {
+      return res.status(400).json({
+        success: false,
+        message: featuredLimitError,
+      });
+    }
+
+    artwork.featured = nextFeaturedValue;
     const updatedArtwork = await artwork.save();
 
     return res.status(200).json({
@@ -431,6 +514,21 @@ const toggleFeaturedArtwork = async (req, res) => {
         success: false,
         message: 'Artwork not found.',
       });
+    }
+
+    if (!artwork.featured) {
+      const featuredLimitError = await ensureFeaturedLimit({
+        id,
+        featured: true,
+        existingArtwork: artwork,
+      });
+
+      if (featuredLimitError) {
+        return res.status(400).json({
+          success: false,
+          message: featuredLimitError,
+        });
+      }
     }
 
     artwork.featured = !artwork.featured;
@@ -507,4 +605,5 @@ module.exports = {
   unfeatureArtwork,
   toggleFeaturedArtwork,
   deleteArtwork,
+  getFeaturedLimitError,
 };
