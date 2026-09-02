@@ -14,6 +14,25 @@ const {
 } = require('../config/auth');
 const { sendPasswordResetEmail } = require('../services/emailService');
 
+const setupAttempts = new Map();
+const setupWindowMs = 15 * 60 * 1000;
+const setupMaxAttempts = 5;
+
+const isSetupRateLimited = (req) => {
+  const key = req.ip || req.socket?.remoteAddress || 'unknown';
+  const now = Date.now();
+  const attempts = (setupAttempts.get(key) || []).filter((timestamp) => now - timestamp < setupWindowMs);
+
+  if (attempts.length >= setupMaxAttempts) {
+    setupAttempts.set(key, attempts);
+    return true;
+  }
+
+  attempts.push(now);
+  setupAttempts.set(key, attempts);
+  return false;
+};
+
 const setAuthCookie = (res, token) => {
   res.cookie(cookieName, token, {
     ...getCookieOptions(),
@@ -61,6 +80,81 @@ const getAdminStatus = async (req, res) => {
     success: true,
     authenticated: state.authenticated,
   });
+};
+
+const setupAdmin = async (req, res) => {
+  if (isSetupRateLimited(req)) {
+    return res.status(429).json({
+      success: false,
+      message: 'Too many setup attempts. Please try again later.',
+    });
+  }
+
+  const configuredAdminEmail = normalizeEmail(process.env.ADMIN_EMAIL);
+  const newPassword = String(req.body && req.body.newPassword ? req.body.newPassword : '');
+  const confirmPassword = String(req.body && req.body.confirmPassword ? req.body.confirmPassword : '');
+
+  if (!configuredAdminEmail || !isValidEmail(configuredAdminEmail)) {
+    return res.status(503).json({
+      success: false,
+      message: 'Admin setup is not available.',
+    });
+  }
+
+  if (newPassword !== confirmPassword) {
+    return res.status(400).json({
+      success: false,
+      message: 'Passwords do not match.',
+    });
+  }
+
+  if (!validatePasswordStrength(newPassword)) {
+    return res.status(400).json({
+      success: false,
+      message: 'Password must be at least 8 characters and include uppercase, lowercase, a number, and a symbol.',
+    });
+  }
+
+  try {
+    const existingAdmin = await Admin.findOne({});
+
+    if (existingAdmin) {
+      return res.status(409).json({
+        success: false,
+        message: 'Admin setup is no longer available.',
+      });
+    }
+
+    const passwordHash = await hashPassword(newPassword);
+
+    try {
+      await Admin.create({
+        email: configuredAdminEmail,
+        passwordHash,
+        isActive: true,
+        sessionVersion: 1,
+      });
+    } catch (error) {
+      if (error && error.code === 11000) {
+        return res.status(409).json({
+          success: false,
+          message: 'Admin setup is no longer available.',
+        });
+      }
+
+      throw error;
+    }
+
+    return res.status(201).json({
+      success: true,
+      message: 'Admin setup complete. You can now log in.',
+    });
+  } catch (error) {
+    return res.status(500).json({
+      success: false,
+      message: 'Admin setup failed. Please try again.',
+    });
+  }
 };
 
 const loginAdmin = async (req, res) => {
@@ -282,6 +376,7 @@ const resetPassword = async (req, res) => {
 
 module.exports = {
   getAdminStatus,
+  setupAdmin,
   loginAdmin,
   logoutAdmin,
   forgotPassword,
