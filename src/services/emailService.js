@@ -1,7 +1,7 @@
 const DEFAULT_RESEND_SENDER = 'onboarding@resend.dev';
 
 const getResendSenderAddress = () => {
-  const configuredSender = (process.env.ADMIN_NOTIFICATION_EMAIL || '').trim();
+  const configuredSender = (process.env.RESEND_FROM_EMAIL || '').trim();
   return configuredSender || DEFAULT_RESEND_SENDER;
 };
 
