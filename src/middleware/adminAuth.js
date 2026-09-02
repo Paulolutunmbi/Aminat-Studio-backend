@@ -1,7 +1,7 @@
 const Admin = require('../models/Admin');
 const { cookieName, verifyAdminSession } = require('../config/auth');
 
-const requireAdminAuth = async (req, res, next) => {
+const requireAdminSession = async (req, res, next) => {
   const token = req.cookies && req.cookies[cookieName];
 
   if (!token) {
@@ -33,6 +33,7 @@ const requireAdminAuth = async (req, res, next) => {
       id: admin._id,
       email: admin.email,
       sessionVersion: admin.sessionVersion,
+      mustChangePassword: Boolean(admin.mustChangePassword),
     };
 
     return next();
@@ -44,6 +45,17 @@ const requireAdminAuth = async (req, res, next) => {
   }
 };
 
+const requireAdminAuth = async (req, res, next) => {
+  return requireAdminSession(req, res, () => {
+    if (req.admin.mustChangePassword) {
+      return res.status(403).json({ success: false, message: 'Password change required.', code: 'PASSWORD_CHANGE_REQUIRED' });
+    }
+
+    return next();
+  });
+};
+
 module.exports = {
+  requireAdminSession,
   requireAdminAuth,
 };
