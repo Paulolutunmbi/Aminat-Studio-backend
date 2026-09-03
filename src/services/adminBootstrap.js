@@ -8,7 +8,9 @@ const ensureInitialAdmin = async () => {
     throw new Error('ADMIN_EMAIL is missing or invalid.');
   }
 
-  const existingAdmin = await Admin.findOne({});
+  // Bootstrap is scoped to the configured account.  An unrelated document must
+  // never prevent creation of the configured administrator.
+  const existingAdmin = await Admin.findOne({ email: configuredEmail });
   if (existingAdmin) {
     return existingAdmin;
   }
@@ -25,12 +27,11 @@ const ensureInitialAdmin = async () => {
       email: configuredEmail,
       passwordHash,
       isActive: true,
-      mustChangePassword: true,
       sessionVersion: 1,
     });
   } catch (error) {
     if (error && error.code === 11000) {
-      return Admin.findOne({});
+      return Admin.findOne({ email: configuredEmail });
     }
 
     throw error;

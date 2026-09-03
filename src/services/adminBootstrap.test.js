@@ -19,7 +19,7 @@ const withEnv = async (callback, initialPassword = 'Initial!Password9') => {
   }
 };
 
-test('bootstrap creates a bcrypt-hashed admin requiring a password change', async () => {
+test('bootstrap creates a bcrypt-hashed active admin', async () => {
   await withEnv(async () => {
     const originalFindOne = Admin.findOne;
     const originalCreate = Admin.create;
@@ -32,7 +32,7 @@ test('bootstrap creates a bcrypt-hashed admin requiring a password change', asyn
     try {
       await ensureInitialAdmin();
       assert.equal(created.email, 'aminatstudio0@gmail.com');
-      assert.equal(created.mustChangePassword, true);
+      assert.equal(created.isActive, true);
       assert.match(created.passwordHash, /^\$2[aby]\$/);
       assert.equal(created.passwordHash.includes('Initial!Password9'), false);
       assert.equal(await bcrypt.compare('Initial!Password9', created.passwordHash), true);
@@ -45,11 +45,14 @@ test('bootstrap creates a bcrypt-hashed admin requiring a password change', asyn
 
 test('bootstrap does not overwrite an existing admin password', async () => {
   await withEnv(async () => {
-    const existing = { email: 'aminatstudio0@gmail.com', passwordHash: 'existing-hash', mustChangePassword: false };
+    const existing = { email: 'aminatstudio0@gmail.com', passwordHash: 'existing-hash' };
     const originalFindOne = Admin.findOne;
     const originalCreate = Admin.create;
     let createCalled = false;
-    Admin.findOne = async () => existing;
+    Admin.findOne = async (query) => {
+      assert.deepEqual(query, { email: 'aminatstudio0@gmail.com' });
+      return existing;
+    };
     Admin.create = async () => { createCalled = true; };
     try {
       const result = await ensureInitialAdmin();
@@ -95,6 +98,29 @@ test('bootstrap tolerates a concurrent duplicate and returns the existing admin'
     };
     try {
       assert.equal(await ensureInitialAdmin(), existing);
+    } finally {
+      Admin.findOne = originalFindOne;
+      Admin.create = originalCreate;
+    }
+  });
+});
+
+test('bootstrap ignores an unrelated admin and creates the configured account', async () => {
+  await withEnv(async () => {
+    const originalFindOne = Admin.findOne;
+    const originalCreate = Admin.create;
+    let created;
+    Admin.findOne = async (query) => {
+      assert.deepEqual(query, { email: 'aminatstudio0@gmail.com' });
+      return null;
+    };
+    Admin.create = async (admin) => {
+      created = admin;
+      return admin;
+    };
+    try {
+      await ensureInitialAdmin();
+      assert.equal(created.email, 'aminatstudio0@gmail.com');
     } finally {
       Admin.findOne = originalFindOne;
       Admin.create = originalCreate;

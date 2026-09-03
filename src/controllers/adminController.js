@@ -36,7 +36,7 @@ const readAuthState = async (req) => {
 
   try {
     const payload = verifyAdminSession(req.cookies[cookieName]);
-    const admin = await Admin.findById(payload.sub).select('+passwordHash');
+    const admin = await Admin.findById(payload.sub);
 
     if (!admin || !admin.isActive || Number(payload.sessionVersion) !== Number(admin.sessionVersion || 1)) {
       return { authenticated: false, admin: null };
@@ -47,7 +47,6 @@ const readAuthState = async (req) => {
       admin: {
         id: admin._id,
         email: admin.email,
-        mustChangePassword: Boolean(admin.mustChangePassword),
       },
     };
   } catch (error) {
@@ -61,7 +60,6 @@ const getAdminStatus = async (req, res) => {
   return res.status(200).json({
     success: true,
     authenticated: state.authenticated,
-    mustChangePassword: state.authenticated ? state.admin.mustChangePassword : false,
   });
 };
 
@@ -125,7 +123,6 @@ const loginAdmin = async (req, res) => {
     return res.status(200).json({
       success: true,
       authenticated: true,
-      mustChangePassword: Boolean(admin.mustChangePassword),
       message: 'Admin login successful.',
     });
   } catch (error) {
@@ -139,7 +136,9 @@ const loginAdmin = async (req, res) => {
 const changePassword = async (req, res) => {
   const currentPassword = String(req.body && req.body.currentPassword ? req.body.currentPassword : '');
   const newPassword = String(req.body && req.body.newPassword ? req.body.newPassword : '');
-  const confirmPassword = String(req.body && req.body.confirmPassword ? req.body.confirmPassword : '');
+  const confirmPassword = req.body && Object.prototype.hasOwnProperty.call(req.body, 'confirmPassword')
+    ? String(req.body.confirmPassword || '')
+    : newPassword;
 
   if (!currentPassword || !newPassword) {
     return res.status(400).json({ success: false, message: 'Current and new passwords are required.' });
@@ -163,7 +162,6 @@ const changePassword = async (req, res) => {
     }
 
     admin.passwordHash = await hashPassword(newPassword);
-    admin.mustChangePassword = false;
     admin.sessionVersion = Number(admin.sessionVersion || 1) + 1;
     await admin.save();
     clearAuthCookie(res);
@@ -299,7 +297,6 @@ const resetPassword = async (req, res) => {
 
     const passwordHash = await hashPassword(newPassword);
     admin.passwordHash = passwordHash;
-    admin.mustChangePassword = false;
     admin.passwordResetToken = null;
     admin.passwordResetExpiresAt = null;
     admin.sessionVersion = Number(admin.sessionVersion || 1) + 1;
