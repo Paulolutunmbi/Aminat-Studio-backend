@@ -93,7 +93,9 @@ const hashResetToken = (token) => crypto.createHash('sha256').update(String(toke
 
 const getCookieOptions = () => ({
   httpOnly: true,
-  sameSite: isProduction ? 'strict' : 'lax',
+  // The production UI is hosted on Vercel while this API is hosted on Render.
+  // Those hosts are cross-site, so credentialed API requests require None.
+  sameSite: isProduction ? 'none' : 'lax',
   secure: isProduction,
   maxAge: sessionDurationMs,
 });

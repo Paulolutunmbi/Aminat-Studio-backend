@@ -22,10 +22,12 @@ const setAuthCookie = (res, token) => {
 };
 
 const clearAuthCookie = (res) => {
+  const { httpOnly, sameSite, secure } = getCookieOptions();
+
   res.clearCookie(cookieName, {
-    httpOnly: true,
-    sameSite: process.env.NODE_ENV === 'production' ? 'strict' : 'lax',
-    secure: process.env.NODE_ENV === 'production',
+    httpOnly,
+    sameSite,
+    secure,
   });
 };
 
@@ -56,6 +58,9 @@ const readAuthState = async (req) => {
 
 const getAdminStatus = async (req, res) => {
   const state = await readAuthState(req);
+
+  // Authentication state must never be reused from a cache after login/logout.
+  res.set('Cache-Control', 'no-store');
 
   return res.status(200).json({
     success: true,
